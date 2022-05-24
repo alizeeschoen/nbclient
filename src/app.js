@@ -1352,6 +1352,7 @@ function embedNbApp() {
                 this.threads = [...this.importantThreads]
 
                 this.sortBy = sortBy
+                
                 console.log("first sort")
                 switch (sortBy) {
                     case 'position':
