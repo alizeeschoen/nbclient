@@ -80,12 +80,7 @@ function embedNbApp() {
     loadCSS(`${PLUGIN_HOST_URL}/style/tooltip.css`)
     loadScript('https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.9.0-alpha1/katex.min.js')
     document.documentElement.setAttribute('style', 'overflow: overlay !important;')
-    if (!window.location.search.includes('documap=true')) {
-        document.body.setAttribute('style', 'position: initial !important; margin: 0 325px 0 0 !important;')
-    } else {
-        document.body.classList.add('nb-documap')
-        document.getElementsByTagName('html')[0].setAttribute('style', 'height: 100%; background: #f4ad3e;')
-    }
+    document.body.setAttribute('style', 'position: initial !important; margin: 0 325px 0 0 !important;')
     let element = document.createElement('div')
     element.id = 'nb-app-wrapper'
     let child = document.createElement('div')
@@ -160,13 +155,11 @@ function embedNbApp() {
                     :threads-hovered="threadsHovered"
                     :draft-range="draftRange"
                     :show-highlights="showHighlights"
-                    :emojiHeatmap="emojiHeatmap"
                     :user="user"
                     :activeClass="activeClass"
                     :current-configs="currentConfigs"
                     :show-sync-features="showSyncFeatures"
                     :is-innotation-hover="isInnotationHover"
-                    :hashtags="hashtags"
                     @log-nb="onLogNb"
                     @select-thread="onSelectThread"
                     @unselect-thread="onUnselectThread"
@@ -214,7 +207,6 @@ function embedNbApp() {
                     :threads-hovered="threadsHovered"
                     :draft-range="draftRange"
                     :show-highlights="showHighlights"
-                    :emojiHeatmap="emojiHeatmap"
                     :source-url="sourceURL"
                     :current-configs="currentConfigs"
                     :is-dragging="isDragging"
@@ -266,7 +258,6 @@ function embedNbApp() {
                     @change-number-threads="onChangeNumberThreads"
                     @sort-by="onSortBy"
                     @delete-thread="onDeleteThread"
-                    @change-heatmap-mode="changeHeatmapMode"
                     @new-thread="onNewThread"
                     @cancel-draft="onCancelDraft"
                     @editor-empty="onEditorEmpty"
@@ -297,6 +288,8 @@ function embedNbApp() {
             threads: [],
             usingFilter: false,
             allThreads: [],
+            importantThreads: [],
+            includedThreads: [],
             sortBy: 'init',
             allAuthorThreads: {},
             threadSelected: null,
@@ -305,8 +298,6 @@ function embedNbApp() {
             stillGatheringThreads: true,
             draftRange: null,
             isEditorEmpty: true,
-            isDocumap: false,
-            doucSettings: {},
             isInnotationHover: false,
             filter: {
                 searchOption: 'text',
@@ -328,7 +319,6 @@ function embedNbApp() {
                 sectioning: null,
             },
             showHighlights: true,
-            emojiHeatmap: false,
             sourceURL: '',
             threadViewInitiator: 'NONE', // what triggered the thread view open ['NONE', 'LIST', 'HIGHLIGHT', 'SPOTLIGHT']
             nbConfigs: {},
@@ -541,11 +531,12 @@ function embedNbApp() {
                     this.numberOfThreads = sortedItems.length
                     this.usingFilter = true
                 } else {
-                    sortedItems = this.threads
+                    // sortedItems = this.threads
                     this.numberOfThreads = this.threads.length
                     this.maxThreads = this.allThreads.length
                     this.filter.sectioning = null
                     this.usingFilter = false
+                    return this.threads
 
                 }
                 return sortedItems
@@ -574,23 +565,8 @@ function embedNbApp() {
                         this.activeClass = this.myClasses[0]
                     }
                     this.sourceURL = source
-                } else if (window.location.href.includes('/nb_viewer.html?id=')) {
-                    let searchParams = new URLSearchParams(window.location.search);
-                    const sourceNbViewer = `${window.location.origin}${window.location.pathname}?id=${searchParams.get('id')}`
-                    const configNbViewer = { headers: { Authorization: 'Bearer ' + token }, params: { url: sourceNbViewer } }
-                    const myClassesNbViewer = await axios.get('/api/annotations/myClasses', configNbViewer)
-                    if (myClassesNbViewer.data.length > 0) {
-                        this.myClasses = myClassesNbViewer.data
-                        if (this.myClasses.length === 1) {
-                            this.activeClass = this.myClasses[0]
-                        }
-                        this.sourceURL = sourceNbViewer
-                    } else {
-                        console.log("Sorry you don't have access");
-                    }
-
                 } else {
-                    const sourceWithQuery = window.location.href.replace('&documap=true', '') // try the source with query params as well
+                    const sourceWithQuery = window.location.href // try the source with query params as well
                     const configWithQuery = { headers: { Authorization: 'Bearer ' + token }, params: { url: sourceWithQuery } }
                     const myClassesWithQuery = await axios.get('/api/annotations/myClasses', configWithQuery)
                     if (myClassesWithQuery.data.length > 0) {
@@ -1029,9 +1005,26 @@ function embedNbApp() {
                     //     }
                     // }
                     this.numberOfThreads = this.maxThreads > this.startThreadNumber? this.startThreadNumber:this.maxThreads;
-                    this.minThreads = 0
+                    // this.minThreads = 0
+                    const token = localStorage.getItem("nb.user");
+                     const headers = { headers: { Authorization: 'Bearer ' + token } }
+                     axios.get(`/api/follow/user`, {headers: { Authorization: 'Bearer ' + token }})
+                     .then((res) => {
+                         this.myfollowing = res.data
+                         console.log("end api")
+                     })
+                     this.importantThreads = this.allThreads.filter((t) => t.hasInstructorPost() || t.hasUserPost(this.user.id) || t.isEndorsed())
+                     for(let i= 0; i < this.myfollowing.length; i++){
+                         if (this.myfollowing[i].follower_id in this.allAuthorThreads){
+                             this.allAuthorThreads[this.myfollowing[i].follower_id].forEach((t) => {
+                                 if(t.anonymity === "IDENTIFIED"  && !this.importantThreads.includes(t)){
+                                     this.importantThreads.push(t)                            }
+                             })
+                         }
+                     }
+                     this.minThreads = this.importantThreads.length
                     this.onSortBy(this.currentConfigs.sortByConfig)
-                    
+                    console.log(this.importantThreads)
                     this.numberOfThreads=this.threads.length
 
                     this.stillGatheringThreads = false
@@ -1053,60 +1046,226 @@ function embedNbApp() {
                 })
             },
             addThreads: function(){
-                if(this.sortBy === 'position' || (this.sortBy==='init' && this.currentConfigs.sortByConfig === 'position')){
-                    let currentMaxThreads = (this.numberOfThreads-this.threads.length)/2
-                    let counter = 0 
-                    let currentNeighbor = this.userNumber+1
-
-                    //loop through the right neihghbors
-                    while(counter < currentMaxThreads && currentNeighbor!= this.userNumber){
-                        let currentAuthor = this.hashedUser[this.orderedUsers[currentNeighbor]]
-                        //loop through the threads of current neighbor
-                        for(let t in this.allAuthorThreads[currentAuthor]){
-                            if (!this.threads.includes(this.allAuthorThreads[currentAuthor][t])){
-                                this.threads.push(this.allAuthorThreads[currentAuthor][t])
-                                counter += 1
-                                if (counter >= currentMaxThreads){
-                                    break
-                                }
-                            }
-                        }
-                        currentNeighbor += 1
-                        if (currentNeighbor >= this.orderedUsers.length){
-                            currentNeighbor = 0
-                        }
-                    } 
-                    
-                    counter = 0
-                    currentNeighbor = this.userNumber - 1
-                    //loop through the left neihghbors
-                    while(counter < currentMaxThreads  && currentNeighbor!= this.userNumber && this.threads.length < this.numberOfThreads){
-                        //loop through the threads of current neighbor
-                        let currentAuthor = this.hashedUser[this.orderedUsers[currentNeighbor]]
-                        for(let t in this.allAuthorThreads[currentAuthor]){
-                            if (!this.threads.includes(this.allAuthorThreads[currentAuthor][t])){
-
-                                this.threads.push(this.allAuthorThreads[currentAuthor][t])
-                                counter += 1
-                                if (counter >= currentMaxThreads){
-                                    break
-                                }
-                            }
-                        }
-                        currentNeighbor -= 1
-                        if (currentNeighbor <= -1){
-                            currentNeighbor = this.orderedUsers.length-1
-                        }
-                    }
-            } else {
+                let sortBy = this.sortBy
                 let index = 0
-                while (index < this.allThreads.length && this.threads.length < this.numberOfThreads){
-                    if(!this.threads.includes(this.allThreads[index])){
-                        this.threads.push(this.allThreads[index])
+                let currentMaxThreads = 0
+                let tmpThreads = []
+                
+                switch (sortBy) {
+                    case 'position':
+                        currentMaxThreads = (this.numberOfThreads-this.threads.length)
+                        console.log(currentMaxThreads)
+                        this.softSectionThreads(currentMaxThreads)
+                        break
+                    case 'recent':
+                        while (index < this.allThreads.length &&  tmpThreads.length+this.threads.length < this.numberOfThreads){
+                            if(!this.threads.includes(this.allThreads[index])){
+                                    this.threads.push(this.allThreads[index])
+                                    let i = this.importantThreads.indexOf(this.allThreads[index])
+                                    if(i > -1){
+                                        this.includedThreads.push(i)
+                                    }
+                            }
+                            index += 1
+                        }
+                        // let currentBucket = []
+                        // let currentNumBucket = 2*60000
+                        // while (index < this.allThreads.length && this.threads.length < this.numberOfThreads){
+                        //     if(!this.threads.includes(this.allThreads[index])){
+                        //         let time_thread = this.allThreads[index].getMostRecentTimeStamp()
+                        //         let difference = new Date((Date.now()-new Date(time_thread)))
+                        //         if(difference <= currentNumBucket){
+                        //             currentBucket.push(this.allThreads[index])
+                        //         } else {
+                        //             if (currentBucket.length == 1){
+                        //                 this.threads.push(currentBucket[1])
+                        //                 currentBucket = []
+                        //                 currentNumBucket *= 2
+                        //             }
+                        //         }
+                                
+                        //     }
+                        //     index += 1
+                        // } 
+                        break                        
+                    case 'comment':
+                        while (index < this.allThreads.length &&  tmpThreads.length+this.threads.length < this.numberOfThreads){
+                            if(!this.threads.includes(this.allThreads[index])){
+                                if(index < this.allThreads.length-1 && this.allThreads[index+1].countAllReplies() == this.allThreads[index].countAllReplies()){
+                                    tmpThreads.push(this.allThreads[index])
+                                } else {
+                                    if(tmpThreads.length > 0){
+                                        this.softSectionThreads(tmpThreads.length, tmpThreads)
+                                        tmpThreads = []
+                                    }
+                                    this.threads.push(this.allThreads[index])
+                                    let i = this.importantThreads.indexOf(this.allThreads[index])
+                                    if(i > -1){
+                                        this.includedThreads.push(i)
+                                    }
+                                }
+                                
+                            }
+                            index += 1
+                        } 
+                        if(tmpThreads.length > 0){
+                            this.softSectionThreads(tmpThreads.length, tmpThreads)
+                        }
+                        break
+                    case 'reply_request':
+                        while (index < this.allThreads.length &&  tmpThreads.length+this.threads.length < this.numberOfThreads){
+                            if(!this.threads.includes(this.allThreads[index])){
+                                if(index < this.allThreads.length-1 && this.allThreads[index+1].countAllReplyReqs() == this.allThreads[index].countAllReplyReqs()){
+                                    tmpThreads.push(this.allThreads[index])
+                                } else {
+                                    if(tmpThreads.length > 0){
+                                        this.softSectionThreads(tmpThreads.length, tmpThreads)
+                                        tmpThreads = []
+                                    }
+                                    this.threads.push(this.allThreads[index])
+                                    let i = this.importantThreads.indexOf(this.allThreads[index])
+                                    if(i > -1){
+                                        this.includedThreads.push(i)
+                                    }
+                                }
+                                
+                            }
+                            index += 1
+                        } 
+                        if(tmpThreads.length > 0){
+                            this.softSectionThreads(tmpThreads.length, tmpThreads)
+                        }
+                        break
+                    case 'upvote':
+                        while (index < this.allThreads.length &&  tmpThreads.length+this.threads.length < this.numberOfThreads){
+                            if(!this.threads.includes(this.allThreads[index])){
+                                if(index < this.allThreads.length-1 && this.allThreads[index+1].countAllUpvotes() == this.allThreads[index].countAllUpvotes()){
+                                    tmpThreads.push(this.allThreads[index])
+                                } else {
+                                    if(tmpThreads.length > 0){
+                                        this.softSectionThreads(tmpThreads.length, tmpThreads)
+                                        tmpThreads = []
+                                    }
+                                    this.threads.push(this.allThreads[index])
+                                    let i = this.importantThreads.indexOf(this.allThreads[index])
+                                    if(i > -1){
+                                        this.includedThreads.push(i)
+                                    }
+                                }
+                                
+                            }
+                            index += 1
+                        } 
+                        if(tmpThreads.length > 0){
+                            this.softSectionThreads(tmpThreads.length, tmpThreads)
+                        }
+                        break
+                    case 'unseen':
+                        while (index < this.allThreads.length && this.threads.length < this.numberOfThreads && this.allThreads[index].isUnseen()){
+                            if(!this.threads.includes(this.allThreads[index])){
+                                this.threads.push(this.allThreads[index])
+                                let i = this.importantThreads.indexOf(this.allThreads[index])
+                                if(i > -1){
+                                    this.includedThreads.push(i)
+                                }
+                            }
+                            index += 1
+                        } 
+                        if (index < this.allThreads.length && this.threads.length < this.numberOfThreads){
+                            this.softSectionThreads(this.numberOfThreads-this.threads.length)
+                        }
+                        break
+                    default:
+                        currentMaxThreads = (this.numberOfThreads-this.threads.length)
+                        this.softSectionThreads(currentMaxThreads)
+                        break
+                }
+                console.log(this.importantThreads)
+                console.log(this.includedThreads)
+                let i = this.threads.length-1
+                while (i >= 0){
+                    if (!this.importantThreads.includes(this.threads[i])){
+                        console.log("eeeek", this.includedThreads)
+                        console.log("")
+                        this.threads[i] = this.importantThreads[this.includedThreads.pop()]
+                    } 
+                    if (this.includedThreads.length <= 0){
+                        break
                     }
-                    index += 1
-                }                
-            }  
+                    i--
+                }
+                
+
+            
+            //     if(this.sortBy === 'position' || (this.sortBy==='init' && this.currentConfigs.sortByConfig === 'position')){
+                    
+            // } else {
+            //     let index = 0
+            //     while (index < this.allThreads.length && this.threads.length < this.numberOfThreads){
+            //         if(!this.threads.includes(this.allThreads[index])){
+            //             this.threads.push(this.allThreads[index])
+            //         }
+            //         index += 1
+            //     }                
+            // }  
+            },
+            softSectionThreads: function(currentMaxThreads, useThreads = []){
+                currentMaxThreads /= 2
+                let counter = 0 
+                let currentNeighbor = this.userNumber+1
+                //loop through the right neihghbors
+                while(counter < currentMaxThreads && currentNeighbor!= this.userNumber){
+                    let currentAuthor = this.hashedUser[this.orderedUsers[currentNeighbor]]
+                    //loop through the threads of current neighbor
+                    for(let t in this.allAuthorThreads[currentAuthor]){
+                        if (!this.threads.includes(this.allAuthorThreads[currentAuthor][t]) && (useThreads.length == 0 || useThreads.includes(this.allAuthorThreads[currentAuthor][t]))){
+                            this.threads.push(this.allAuthorThreads[currentAuthor][t])
+                            let i = this.importantThreads.indexOf(this.allAuthorThreads[currentAuthor][t])
+                            if(i > -1){
+                                console.log("here")
+                                console.log("")
+                                this.includedThreads.push(i)
+                            }
+                            counter += 1
+                            if (counter >= currentMaxThreads){
+                                break
+                            }
+                        }
+                    }
+                    currentNeighbor += 1
+                    if (currentNeighbor >= this.orderedUsers.length){
+                        currentNeighbor = 0
+                    }
+                } 
+                
+                counter = 0
+                currentNeighbor = this.userNumber - 1
+                //loop through the left neihghbors
+                while(counter < currentMaxThreads  && currentNeighbor!= this.userNumber && this.threads.length < this.numberOfThreads){
+                    //loop through the threads of current neighbor
+                    let currentAuthor = this.hashedUser[this.orderedUsers[currentNeighbor]]
+                    for(let t in this.allAuthorThreads[currentAuthor]){
+                        if (!this.threads.includes(this.allAuthorThreads[currentAuthor][t]) && (useThreads.length == 0 || useThreads.includes(this.allAuthorThreads[currentAuthor][t]))){
+                            this.threads.push(this.allAuthorThreads[currentAuthor][t])
+
+                            let i = this.importantThreads.indexOf(this.allAuthorThreads[currentAuthor][t])
+                            if(i > -1){
+                                console.log("here")
+                                console.log("")
+                                this.includedThreads.push(i)
+                            }
+
+                            counter += 1
+                            if (counter >= currentMaxThreads){
+                                break
+                            }
+                        }
+                    }
+                    currentNeighbor -= 1
+                    if (currentNeighbor <= -1){
+                        currentNeighbor = this.orderedUsers.length-1
+                    }
+                }
             },
             removeThreads: function(){
                 this.onSortBy(this.sortBy)
@@ -1155,9 +1314,6 @@ function embedNbApp() {
                     this.numberOfThreads -= 1
                     this.maxThreads -=1
                 }
-            },
-            changeHeatmapMode: function (mode) {
-                this.emojiHeatmap = mode
             },
             onNewThread: function (thread) {
                 this.threads.push(thread)
@@ -1330,57 +1486,65 @@ function embedNbApp() {
                 this.filter.minUpvotes = min
             },
             onSortBy: function(sortBy) {
+                this.threads = []
+
                 this.sortBy = sortBy
-                const token = localStorage.getItem("nb.user");
-                const headers = { headers: { Authorization: 'Bearer ' + token } }
-                axios.get(`/api/follow/user`, {headers: { Authorization: 'Bearer ' + token }})
-                .then((res) => {
-                    this.myfollowing = res.data
-                })
-                this.threads = this.allThreads.filter((t) => t.hasInstructorPost() || t.hasUserPost(this.user.id) || t.isEndorsed())
-                for(let i= 0; i < this.myfollowing.length; i++){
-                    if (this.myfollowing[i].follower_id in this.allAuthorThreads){
-                        this.allAuthorThreads[this.myfollowing[i].follower_id].forEach((t) => {
-                            if(t.anonymity === "IDENTIFIED"  && !this.threads.includes(t)){
-                                this.threads.push(t)                            }
-                        })
-                    }
-                }
-                this.minThreads = this.threads.length
-                
+             
+                console.log("first sort")
                 switch (sortBy) {
                     case 'position':
+                        console.log("before adding threads")
                         this.addThreads()
+                        console.log("after adding threads and before sorting")
                         this.threads = this.threads.concat().sort(compareDomPosition)
+                        console.log("after sorting")
                         break
                     case 'recent':
                         this.allThreads = this.allThreads.concat().sort(compare('timestamp', 'key', false))
+                        console.log("before adding threads")
                         this.addThreads()
-                        this.threads = this.threads.concat().sort(compare('timestamp', 'key', false))
+                        console.log("after adding threads and before sorting")
+                        // this.threads = this.threads.concat().sort(compare('timestamp', 'key', false))
+                        console.log("after sorting")
                         break                        
                     case 'comment':
                         this.allThreads = this.allThreads.concat().sort(compare('countAllReplies', 'func', false))
+                        console.log("before adding threads")
                         this.addThreads()
-                        this.threads = this.threads.concat().sort(compare('countAllReplies', 'func', false))
+                        console.log("after adding threads and before sorting")
+                        // this.threads = this.threads.concat().sort(compare('countAllReplies', 'func', false))
+                        console.log("after sorting")
                         break
                     case 'reply_request':
                         this.allThreads = this.allThreads.concat().sort(compare('countAllReplyReqs', 'func', false))
+                        console.log("before adding threads")
                         this.addThreads()
-                        this.threads = this.threads.concat().sort(compare('countAllReplyReqs', 'func', false))
+                        console.log("after adding threads and before sorting")
+                        // this.threads = this.threads.concat().sort(compare('countAllReplyReqs', 'func', false))
+                        console.log("after sorting")
                         break
                     case 'upvote':
                         this.allThreads = this.allThreads.concat().sort(compare('countAllUpvotes', 'func', false))
+                        console.log("before adding threads")
                         this.addThreads()
-                        this.threads = this.threads.concat().sort(compare('countAllUpvotes', 'func', false))
+                        console.log("after adding threads and before sorting")
+                        // this.threads = this.threads.concat().sort(compare('countAllUpvotes', 'func', false))
+                        console.log("after sorting")
                         break
                     case 'unseen':
                         this.allThreads = this.allThreads.concat().sort(compare('isUnseen', 'func', false))
+                        console.log("before adding threads")
                         this.addThreads()
-                        this.threads = this.threads.concat().sort(compare('isUnseen', 'func', false))
+                        console.log("after adding threads and before sorting")
+                        // this.threads = this.threads.concat().sort(compare('isUnseen', 'func', false))
+                        console.log("after sorting")
                         break
                     default:
+                        console.log("before adding threads")
                         this.addThreads()
+                        console.log("after adding threads and before sorting")
                         this.threads = this.threads.concat().sort(compareDomPosition)
+                        console.log("after sorting")
                         break
                 }
             },
@@ -1453,16 +1617,18 @@ function embedNbApp() {
                 }
             },
             onChangeNumberThreads: function(num){
+                console.log(num)
                 this.onLogNb('SLIDER_CHANGE')
                 this.filter.sectioning = num
                 if(!this.usingFilter){
                     if (num > this.numberOfThreads){
                         this.numberOfThreads = num
-                        this.addThreads()
+                        // this.addThreads()
                     } else {
                         this.numberOfThreads = num
-                        this.removeThreads()
+                        // this.removeThreads()
                     }
+                    this.onSortBy(this.sortBy)
                 }
             },
             onUnhoverInnotation: function (thread) {
@@ -1601,6 +1767,7 @@ function embedNbApp() {
                     // console.log(`onLogNb \nevent: ${event} \ninitiator: ${initiator} \nspotlightType: ${spotlightType} \nisSyncAnnotation: ${isSyncAnnotation} \nhasSyncAnnotation: ${hasSyncAnnotation} \nnotificationTrigger: ${notificationTrigger} \nannotationId: ${annotationId} \nannotation_replies_count: ${countAnnotationReplies}`)
                     const token = localStorage.getItem("nb.user");
                     const config = { headers: { Authorization: 'Bearer ' + token }, params: { url: this.sourceURL } }
+
                     const pageYOffset = (window.pageYOffset || document.documentElement.scrollTop) - (document.documentElement.clientTop || 0)
                     const pageHeight = (document.documentElement.scrollHeight - document.documentElement.clientHeight)
 
@@ -1627,6 +1794,7 @@ function embedNbApp() {
                         comment_endorsed: endorsed,
                         comment_followed: followed,
                         slider_value: this.numberOfThreads
+                        
                     }, config)
 
                     this.nbLogEventsOrder = this.nbLogEventsOrder + 1
